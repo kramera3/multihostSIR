@@ -1,0 +1,10 @@
+citHeader("To cite multihostSIR in publications, please use:")
+
+bibentry(
+  bibtype  = "Manual",
+  title    = "multihostSIR: Multi-Host Susceptible-Infected-Recovered Models with Allometric Scaling",
+  author   = c(person("Mayank", "Gangwar"), person("Andrew", "Kramer")),
+  year     = "2026",
+  note     = "R package version 0.1.0",
+  url      = "https://github.com/kramera3/multihostSIR"
+)

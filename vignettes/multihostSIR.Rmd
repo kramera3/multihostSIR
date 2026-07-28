@@ -1,0 +1,191 @@
+---
+title: "Introduction to multihostSIR"
+output:
+  rmarkdown::html_vignette:
+    toc: true
+    toc_depth: 2
+vignette: >
+  %\VignetteIndexEntry{Introduction to multihostSIR}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 7,
+  fig.height = 4.5,
+  fig.align = "center",
+  dpi = 96
+)
+```
+
+This vignette is the quickest way in. It builds one community, runs one
+epidemic, then scales up to the replicate study that is the package's main job.
+For the fuller treatment of the model and its assumptions, see
+`vignette("study", package = "multihostSIR")`.
+
+## Why multi-host models
+
+Many wildlife and zoonotic pathogens circulate in several host species at once:
+SARS-CoV-2, highly pathogenic avian influenza, rabies, bovine tuberculosis. A
+single-host SIR model cannot represent the three features that usually dominate
+such systems:
+
+- transmission that is **asymmetric** between species,
+- contact structure imposed by the **food web**,
+- species-specific **susceptibility and virulence**.
+
+`multihostSIR` handles all three, and derives parameters from body mass whenever
+empirical values are unavailable.
+
+```{r library}
+library(multihostSIR)
+set.seed(42)
+```
+
+## The three building blocks
+
+Every simulation is assembled from three objects. Each has sensible defaults and
+each prints itself, so you can inspect what a run will do before starting it.
+
+```{r blocks}
+allo   <- allometry()
+spec   <- community_spec()
+coeffs <- trophic_coefficients()
+
+allo
+```
+
+`allometry()` holds the body-mass power laws `Y = a * M^b`, with `M` in kg and
+time measured in days. `community_spec()` controls how a random community is
+drawn (the fraction of prey, the body-mass pools, how far predator densities are
+thinned). `trophic_coefficients()` sets the strength of each transmission route
+between trophic groups.
+
+The allometric relationships are worth seeing directly:
+
+```{r allometry-plot}
+plot_allometry(allo)
+```
+
+## One community
+
+```{r community}
+comm <- build_community(6, spec = spec, allo = allo)
+comm[, c("species", "type", "mass", "mu", "gamma", "N", "competence")]
+```
+
+Each species gets a trophic type, a body mass drawn from the matching pool,
+allometrically scaled rates, and a within-species transmission rate
+`beta_ii = competence / N`.
+
+## Transmission between species
+
+```{r transmission}
+beta <- transmission_matrix(comm)
+round(beta, 6)
+```
+
+Diagonal entries are the within-species rates. Off-diagonal entries are the
+geometric mean `sqrt(beta_ii * beta_jj)` scaled by a trophic coefficient. Rows
+receive infection; columns are the source. Under the defaults, predators pick up
+infection from prey but never pass it back, which shows up as a block of zeros:
+
+```{r blocked}
+beta[comm$type == "Prey", comm$type == "Predator"]
+```
+
+```{r heatmap, fig.height = 5}
+plot_transmission_matrix(comm)
+```
+
+## Community R0
+
+The community basic reproduction number is the dominant eigenvalue of the
+next-generation matrix.
+
+```{r r0}
+community_R0(comm, beta)
+```
+
+## One epidemic
+
+```{r epidemic}
+sim <- simulate_epidemic(comm, beta = beta, duration = 365)
+species_metrics(sim)
+```
+
+The epidemic is seeded in the most competent host by default. `species_metrics()`
+reports, per species, the peak number infected, the day it peaked, cumulative
+infections, and the attack rate.
+
+## Replicate study
+
+`run_multihost_sir()` is the entry point you will use most. It draws many random
+communities at each richness level, runs an epidemic in each, and records the
+outcomes along with per-level timing. Iteration counts are kept small here so the
+vignette builds quickly; use hundreds or thousands for real work.
+
+```{r run}
+res <- run_multihost_sir(
+  richness_levels = 3:6,
+  n_iterations    = 15,
+  duration        = 180,
+  seed            = 42
+)
+
+res
+summary(res)
+```
+
+```{r figures}
+plot_r0_richness(res)
+plot_trajectories(res, xlim = c(0, 120))
+```
+
+## Using your own community
+
+The run above generates communities at random. If you already know your system,
+you can supply it directly. A complete species table -- every rate for every
+species -- combined with a transmission matrix leaves nothing to randomise, so
+the model runs once and returns an exact answer.
+
+```{r fixed}
+species <- data.frame(
+  species    = c("mouse", "deer", "fox"),
+  type       = c("Prey", "Prey", "Predator"),
+  mass       = c(0.02, 50, 5),
+  mu         = c(0.013, 0.002, 0.003),
+  gamma      = c(0.27, 0.04, 0.07),
+  alpha      = c(0.027, 0.004, 0.007),
+  N          = c(9000, 27, 6),
+  competence = c(0.5, 0.1, 0.2)
+)
+
+comm <- read_community(species)
+attr(comm, "complete")   # TRUE: nothing needed filling in
+
+beta <- read_transmission_matrix(matrix(c(
+  0.05, 0.01, 0.00,
+  0.01, 0.03, 0.00,
+  0.02, 0.02, 0.04), nrow = 3, byrow = TRUE), community = comm)
+
+fit <- run_fixed_community(comm, beta, duration = 200)
+fit
+```
+
+`read_community()` also accepts a path to a `.csv` or `.xlsx` file. Any column
+you leave out is filled from body mass, and the printed "assumptions used" block
+records what was supplied versus filled. If you give a community but no matrix,
+the matrix is built from your competence values and the trophic rules; if your
+table is only partial, the gaps are generated and you are back to averaging over
+`run_multihost_sir()`.
+
+## Where to next
+
+- `vignette("study", package = "multihostSIR")` for the model definition,
+  run-time scaling, reproducibility, and how to change every assumption.
+- `?run_multihost_sir` and the other help pages, each with runnable examples.
+- `demo(getting_started, package = "multihostSIR")` for a console walkthrough.

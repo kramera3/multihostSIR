@@ -1,0 +1,44 @@
+Package: multihostSIR
+Type: Package
+Title: multihostSIR – an R package for simulating multi-host pathogen dynamics in ecological communities
+Version: 0.1.0
+Authors@R: c(
+    person("Mayank", "Gangwar", email = "mayankgangwar10@gmail.com",
+           role = c("aut", "cre")),
+    person("Andrew", "Kramer", email = "amkramer@usf.edu", role = "aut"))
+Description: Builds and simulates Susceptible-Infected-Recovered (SIR) models for
+    an arbitrary number of interacting host species. Species-specific mortality,
+    recovery, carrying capacity and virulence may be derived from body mass using
+    quarter-power allometric scaling (Kleiber, 1932, <doi:10.1093/jn/6.4.315>;
+    Damuth, 1981, <doi:10.1038/290699a0>), and between-species transmission is
+    described by an asymmetric matrix built from within-species transmission rates
+    and trophic interaction coefficients. Community-level basic reproduction
+    numbers are obtained as the dominant eigenvalue of the next-generation matrix
+    (Diekmann, Heesterbeek and Metz, 1990, <doi:10.1007/BF00178324>). Utilities are
+    provided for randomised replicate communities, run-time scaling studies,
+    summary tables and publication-quality figures.
+License: MIT + file LICENSE
+URL: https://github.com/kramera3/multihostSIR
+BugReports: https://github.com/kramera3/multihostSIR/issues
+Encoding: UTF-8
+Depends: R (>= 4.1.0)
+Imports:
+    deSolve (>= 1.30),
+    ggplot2 (>= 3.4.0),
+    scales (>= 1.2.0),
+    rlang (>= 1.0.0),
+    stats,
+    utils,
+    parallel
+Suggests:
+    testthat (>= 3.0.0),
+    openxlsx,
+    readxl,
+    knitr,
+    rmarkdown
+VignetteBuilder: knitr
+Config/testthat/edition: 3
+Roxygen: list(markdown = TRUE)
+Language: en-GB
+LazyData: false
+Config/roxygen2/version: 8.0.0
