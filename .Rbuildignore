@@ -1,0 +1,16 @@
+^.*\.Rproj$
+^\.Rproj\.user$
+^\.github$
+^analysis$
+^install\.R$
+^GUIDE\.md$
+^cran-comments\.md$
+^CRAN_SUBMISSION_GUIDE\.md$
+^CONTRIBUTING\.md$
+^CODE_OF_CONDUCT\.md$
+^LICENSE\.md$
+^multihostSIR_outputs$
+^docs$
+^\.lintr$
+^CHECKLIST\.txt$
+^SETUP\.md$

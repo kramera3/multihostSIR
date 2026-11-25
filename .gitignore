@@ -1,0 +1,14 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj
+multihostSIR_outputs/
+analysis/figures/
+analysis/output/
+*.tar.gz
+*.Rcheck/
+inst/doc/
+vignettes/*.html
+vignettes/*.R
+.DS_Store

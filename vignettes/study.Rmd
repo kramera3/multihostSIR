@@ -1,0 +1,221 @@
+---
+title: "The multi-host SIR model and simulation study"
+output:
+  rmarkdown::html_vignette:
+    toc: true
+    toc_depth: 2
+vignette: >
+  %\VignetteIndexEntry{The multi-host SIR model and simulation study}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 7,
+  fig.height = 4.5,
+  fig.align = "center",
+  dpi = 96
+)
+library(multihostSIR)
+set.seed(42)
+```
+
+This vignette covers the model itself, the scaling assumptions, run-time
+behaviour, reproducibility, and how to change the defaults. If you have not
+already, read `vignette("multihostSIR")` first for the basic workflow.
+
+## Model definition
+
+For species $i$ in a community of $n$ species:
+
+$$\frac{dS_i}{dt} = b_i - \mu_i S_i - \Lambda_i S_i$$
+$$\frac{dI_i}{dt} = \Lambda_i S_i - (\mu_i + \gamma_i + \alpha_i) I_i$$
+$$\frac{dR_i}{dt} = \gamma_i I_i - \mu_i R_i$$
+$$\frac{dC_i}{dt} = \Lambda_i S_i$$
+
+where $\Lambda_i = \sum_j \beta_{ij} I_j$ is the force of infection on species
+$i$, and $C_i$ accumulates cumulative incidence without feeding back into the
+dynamics.
+
+Births $b_i = \mu_i N_i$ are held constant, so the disease-free equilibrium is
+$S_i = N_i$. Total population size is **not** conserved once virulence
+$\alpha_i > 0$. This is a modelling choice, not an oversight: it holds the
+disease-free state at the allometric carrying capacity while letting
+disease-induced mortality draw down standing abundance.
+
+A discrete event fires at each integer time step and sets any infected
+compartment holding fewer than one individual to exactly zero. Without it,
+floating-point residues on the order of $10^{-15}$ individuals sustain phantom
+transmission indefinitely. Disable it with `extinction_threshold = 0`.
+
+## Allometric scaling
+
+If a species' rates are not measured, they are derived from body mass $M$ (kg)
+via $Y = a M^{b}$. The unit of time is one day.
+
+| Symbol   | Meaning                              | Default            |
+|----------|--------------------------------------|--------------------|
+| $\mu$    | background mortality (per day)       | $0.005\,M^{-0.25}$ |
+| $\gamma$ | recovery rate (per day)              | $0.1\,M^{-0.25}$   |
+| $N$      | carrying-capacity density (per km^2) | $500\,M^{-0.75}$   |
+| $\alpha$ | disease-induced mortality (per day)  | $0.01\,M^{-0.25}$  |
+
+The exponents are not arbitrary. Physiological rates and lifespan scale as
+roughly $M^{-0.25}$, so larger animals live longer and recover more slowly
+(Kleiber 1932; Lindstedt and Calder 1981; Peters 1983). Population density
+scales as $M^{-0.75}$ by Damuth's law, so larger animals are rarer
+(Damuth 1981).
+
+```{r allometry}
+allo <- allometry()
+allo
+
+# a small host against a large one
+rbind(small = allo$a_mort * 0.02^allo$b_mort,
+      large = allo$a_mort * 50^allo$b_mort)
+```
+
+## Transmission and R0
+
+The between-species transmission matrix has diagonal
+$\beta_{ii} = \mathrm{competence}_i / N_i$ and off-diagonal entries
+$c \cdot \sqrt{\beta_{ii}\beta_{jj}}$, where $c$ is a trophic coefficient. The
+next-generation matrix is
+
+$$K_{ij} = \beta_{ij}\, N_i\, D_j, \qquad D_j = \frac{1}{\gamma_j + \mu_j + \alpha_j}$$
+
+and community R0 is its dominant eigenvalue.
+
+```{r r0}
+comm <- build_community(6)
+beta <- transmission_matrix(comm)
+community_R0(comm, beta)
+```
+
+One subtlety: R0 is *invariant* when every species' density is scaled by the same
+factor, because $\beta_{ii} = \mathrm{competence}/N$ falls as $1/N$ while $K$
+carries a factor of $N$, and the two cancel. Density *differences* between species
+still matter; a uniform rescaling does not.
+
+```{r r0-invariance}
+comm2 <- comm
+comm2$N <- comm2$N * 10
+comm2$beta_ii <- comm2$competence / comm2$N
+c(original = community_R0(comm), rescaled = community_R0(comm2))
+```
+
+## Run-time scaling
+
+Each richness level is timed separately, which turns a replicate run into a
+scaling study.
+
+```{r timing-run}
+res <- run_multihost_sir(
+  richness_levels = 3:7,
+  n_iterations    = 10,
+  duration        = 150,
+  seed            = 42
+)
+
+cx <- timing_complexity(res)
+c(exponent = cx$exponent_richness, r_squared = cx$r_squared_richness)
+```
+
+```{r timing-plot}
+plot_timing(res, log_scale = TRUE)
+```
+
+The $n \times n$ matrix-vector product in the force-of-infection term and the
+$n \times n$ eigendecomposition used for R0 make an exponent between 2 and 3 the
+expectation at large $n$. A short untimed warm-up batch runs before the timed
+loop so that one-off costs (JIT compilation, cluster start-up) do not inflate
+the first level; disable it with `warmup = FALSE`.
+
+## Reproducibility
+
+Same seed, same results:
+
+```{r repro}
+a <- run_multihost_sir(3:5, n_iterations = 10, duration = 100, seed = 42)
+b <- run_multihost_sir(3:5, n_iterations = 10, duration = 100, seed = 42)
+identical(a$results$R0, b$results$R0)
+```
+
+Serial runs use `set.seed()`; parallel runs use
+`parallel::clusterSetRNGStream()`, applied after the warm-up so warm-up never
+shifts the recorded results. A serial run and a parallel run with the same seed
+give different (but equally valid) results, because L'Ecuyer streams differ from
+the default RNG. Fix `parallel`, `n_cores`, and `seed` together for bit-identical
+output.
+
+## Changing the assumptions
+
+Every default is an argument. Here predators are less rare, prey are larger,
+recovery is slower, and the normally blocked predator-to-prey route is opened.
+
+```{r custom}
+custom <- run_multihost_sir(
+  richness_levels = 3:5,
+  n_iterations    = 10,
+  duration        = 150,
+  spec = community_spec(
+    predator_density_factor = 0.4,
+    prey_masses = c(5, 20, 80)
+  ),
+  allo = allometry(a_recovery = 0.05),
+  coefficients = trophic_coefficients(pred_to_prey = 0.1),
+  seed = 1
+)
+
+summary(custom)
+```
+
+## Exporting results
+
+```{r export, eval = FALSE}
+export_results(res, dir = "output", formats = c("csv", "xlsx"))
+```
+
+This writes the results, trajectories, timing, summary, and derived tables.
+Excel output needs the optional `openxlsx` package; without it you get a warning
+and CSV only. Excel sheets cap at 1,048,576 rows, so larger tables get a pointer
+note in the workbook while the complete data always go to CSV.
+
+## Larger runs
+
+For production work, raise the iteration count and go parallel:
+
+```{r big, eval = FALSE}
+big <- run_multihost_sir(
+  richness_levels = 3:30,
+  n_iterations    = 10000,
+  seed            = 42,
+  parallel        = TRUE,
+  n_cores         = parallel::detectCores() - 1,
+  progress        = TRUE
+)
+```
+
+`parallel` defaults to `FALSE` and `n_cores` to `2`, because package checks must
+not use more than two cores. Raise both on your own machine.
+
+## References
+
+Damuth, J. (1981) Population density and body size in mammals. *Nature* **290**,
+699-700.
+
+Diekmann, O., Heesterbeek, J.A.P. and Metz, J.A.J. (1990) On the definition and
+the computation of the basic reproduction ratio R0 in models for infectious
+diseases in heterogeneous populations. *Journal of Mathematical Biology* **28**,
+365-382.
+
+Kleiber, M. (1932) Body size and metabolism. *Hilgardia* **6**, 315-353.
+
+Lindstedt, S.L. and Calder, W.A. (1981) Body size, physiological time, and
+longevity of homeothermic animals. *Quarterly Review of Biology* **56**, 1-16.
+
+Peters, R.H. (1983) *The Ecological Implications of Body Size*. Cambridge
+University Press.
